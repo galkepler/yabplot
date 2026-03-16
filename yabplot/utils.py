@@ -2,6 +2,8 @@ import numpy as np
 import pandas as pd
 import nibabel as nib
 import pyvista as pv
+import scipy.sparse as sp
+from scipy.ndimage import map_coordinates, gaussian_filter
 import matplotlib.pyplot as plt
 import os
 

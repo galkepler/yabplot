@@ -527,6 +527,19 @@ def plot_tracts(data=None, atlas=None, custom_atlas_path=None, views=None, layou
         Opacity of the context brain mesh. Default is 0.2.
     bmesh_color : str, optional
         Color of the context brain mesh.
+    nifti_mask : str, optional
+        Path to a NIfTI file containing a binary mask. Mesh will be generated
+        from this mask and used as a background context instead of the standard brain mesh.
+        `bmesh_type` need to be set to None for this to work.
+        Default is None.
+    nifti_mask_blur : float, optional
+        Standard deviation (in voxels) of Gaussian blur applied to the mask before
+        surface extraction. Higher values produce smoother surfaces.
+        Typical range: 1.0-3.0. Default is 1.5.
+    nifti_smooth : int, optional
+        Number of smoothing iterations for the extracted NIfTI surface.
+        Higher values produce smoother surfaces but may lose detail.
+        Set to 0 to disable smoothing. Default is 10.
     zoom : float, optional
         Camera zoom level. >1.0 zooms in, <1.0 zooms out. Default is 1.2.
     orientation_coloring : bool, optional
