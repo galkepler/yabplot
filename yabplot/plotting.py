@@ -12,7 +12,7 @@ from .data import (
 )
 
 from .utils import (
-    load_gii, load_gii2pv, prep_data, 
+    load_gii2pv, prep_data, 
     generate_distinct_colors, parse_lut
 )
 
@@ -27,7 +27,25 @@ from .scene import (
     set_camera, finalize_plot, get_shading_preset, add_colorbars
 )
 
+def _load_bmesh(bmesh):
+    """
+    Transform bmesh into {'L': PolyData, 'R': PolyData}, {'both': bmesh} single
+    PolyData passthrough, or {} if None.
+    """
+    if bmesh is None:
+        return {}
+    if isinstance(bmesh, str):
+        lh_path, rh_path = get_surface_paths(bmesh, 'bmesh')
+        return {'L': load_gii2pv(lh_path), 'R': load_gii2pv(rh_path)}
+    if isinstance(bmesh, dict):
+        return bmesh
+    return {'both': bmesh}
 
+def _extract_polydata(mesh_hemi: pv.PolyData):
+    """Return vertices and rotated faces for plotting."""
+    v = mesh_hemi.points
+    f = mesh_hemi.faces.reshape(-1, 4)[:, 1:]
+    return v, f
 
 def _render_cortical_views(lh_v, lh_f, lh_vals, rh_v, rh_f, rh_vals, is_cat,
                            views, layout, figsize, cmap, vminmax, nan_color, 
@@ -114,7 +132,7 @@ def _render_cortical_views(lh_v, lh_f, lh_vals, rh_v, rh_f, rh_vals, is_cat,
 ### PLOT FOR ATLAS-BASED CORTICAL DATA ###
 
 def plot_cortical(data=None, atlas=None, custom_atlas_path=None, views=None, layout=None, 
-                  bmesh_type='midthickness', bmesh=None, scalars='Data', figsize=(1000, 600), cmap='coolwarm', 
+                  bmesh='midthickness', scalars='Data', figsize=(1000, 600), cmap='coolwarm', 
                   vminmax=[None, None], nan_color=(1.0, 1.0, 1.0), style='default', zoom=1.2, 
                   proc_vertices=None, display_type='static', export_path=None):
     """
@@ -142,12 +160,10 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, views=None, lay
         or a dictionary of camera configurations. Defaults to all views.
     layout : tuple (rows, cols), optional
         Grid layout for subplots. If None, automatically calculated based on the number of views.                                                                                
-    bmesh_type : str
-        Name of the background context brain mesh (e.g., 'midthickness', 'white', 'swm', etc). 
-        Default is 'midthickness'.
     bmesh : pyvista.PolyData or dict, optional                                                                                                   
-        Pre-loaded background mesh. Accepts a single PolyData (used for both hemispheres)                                                        
-        or a dict with 'L'/'R' keys. When provided, ``bmesh_type`` is ignored.
+        Configure background context brain mesh. Accepts a string 
+        (e.g., 'midthickness', 'white', 'swm', etc), single PolyData (used for both hemispheres)                                                        
+        or a dict with 'L'/'R' keys. Default is 'midthickness'.
     scalars : str, optional
         The string key corresponding to the scalar data array in the PyVista 
         point data dictionary. Default is 'Data'.  
@@ -185,23 +201,23 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, views=None, lay
     # atlas and categorical check
     if atlas is None and custom_atlas_path is None:
         atlas = 'aparc'
-    is_cat = (data is None and bmesh is None)
+    is_cat = (data is None and not isinstance(bmesh, dict))
 
     # load brain mesh
-    if bmesh is not None:
-        lh_v = bmesh['L'].points
-        lh_f = bmesh['L'].faces.reshape(-1, 4)[:, 1:]
-        lh_vals_raw = bmesh['L'][scalars]
-        rh_v = bmesh['R'].points
-        rh_f = bmesh['R'].faces.reshape(-1, 4)[:, 1:]
-        rh_vals_raw = bmesh['R'][scalars]
+    if bmesh is None:                                     
+      raise ValueError("plot_cortical requires a background mesh; bmesh cannot be None.")
+      
+    loaded_bmesh = _load_bmesh(bmesh)
+    lh_v, lh_f = _extract_polydata(loaded_bmesh['L'])
+    rh_v, rh_f = _extract_polydata(loaded_bmesh['R'])
+        
+    if isinstance(bmesh, dict):
+        # extract data from PolyData instance, skip atlas
+        lh_vals_raw = loaded_bmesh['L'][scalars]
+        rh_vals_raw = loaded_bmesh['R'][scalars]
         is_cat = False
         lut_colors, max_id = None, None
     else:
-        b_lh_path, b_rh_path = get_surface_paths(bmesh_type, 'bmesh')
-        lh_v, lh_f = load_gii(b_lh_path)
-        rh_v, rh_f = load_gii(b_rh_path)
-
         # resolve atlas
         atlas_dir = _resolve_resource_path(atlas, 'cortical', custom_path=custom_atlas_path)
         check_name = None if custom_atlas_path else atlas
@@ -317,7 +333,7 @@ def plot_vertexwise(lh, rh, scalars='Data', views=None, layout=None, figsize=(10
 
 def plot_subcortical(data=None, atlas=None, custom_atlas_path=None, views=None, layout=None, 
                      figsize=(1000, 600), cmap='coolwarm', vminmax=[None, None], nan_color='#cccccc', 
-                     nan_alpha=1.0, style='default', bmesh_type='midthickness', bmesh=None,
+                     nan_alpha=1.0, style='default', bmesh='midthickness',
                      bmesh_alpha=0.1, bmesh_color='lightgray', zoom=1.2, display_type='static', 
                      export_path=None, custom_atlas_proc=dict(smooth_i=15, smooth_f=0.6)):
     """
@@ -356,12 +372,10 @@ def plot_subcortical(data=None, atlas=None, custom_atlas_path=None, views=None, 
         Opacity (0.0 to 1.0) for regions with no data. Set to 0.0 to hide them.
     style : str, optional
         Lighting preset ('default', 'matte', 'glossy', 'sculpted', 'flat').      
-    bmesh_type : str or None, optional
-        Name of the background context brain mesh (e.g., 'midthickness', 'white', 'swm', etc). 
-        Set to None to hide the context brain. Default is 'midthickness'.
     bmesh : pyvista.PolyData or dict, optional                                                                                                   
-        Pre-loaded background mesh. Accepts a single PolyData (used for both hemispheres)                                                        
-        or a dict with 'L'/'R' keys. When provided, ``bmesh_type`` is ignored.  
+        Configure background context brain mesh. Accepts a string 
+        (e.g., 'midthickness', 'white', 'swm', etc), single PolyData (used for both hemispheres)                                                        
+        or a dict with 'L'/'R' keys. Default is 'midthickness'.
     bmesh_alpha : float, optional
         Opacity of the context brain mesh. Default is 0.1.
     bmesh_color : str, optional
@@ -390,16 +404,9 @@ def plot_subcortical(data=None, atlas=None, custom_atlas_path=None, views=None, 
         atlas = 'aseg'
 
     # load context brain mesh (if requested) or accept mesh directly
-    ctx_meshes = {}
-    if bmesh is not None:
-        ctx_meshes = bmesh if isinstance(bmesh, dict) else {'both': bmesh}
-    elif bmesh_type:
-        b_lh_path, b_rh_path = get_surface_paths(bmesh_type, 'bmesh')
-        ctx_meshes['L'] = load_gii2pv(b_lh_path)
-        ctx_meshes['R'] = load_gii2pv(b_rh_path)
+    ctx_meshes = _load_bmesh(bmesh)
     
     # load regional atlas meshes
-
     # resolve atlas path (either download or custom directory)
     atlas_dir = _resolve_resource_path(atlas, 'subcortical', custom_path=custom_atlas_path)
 
@@ -504,7 +511,7 @@ def clear_tract_cache():
 def plot_tracts(data=None, atlas=None, custom_atlas_path=None, views=None, layout=None, 
                 figsize=(1000, 800), cmap='coolwarm', alpha=1.0, vminmax=[None, None], 
                 nan_color='#BDBDBD', nan_alpha=1.0, style='default',
-                bmesh_type='midthickness', bmesh=None, bmesh_alpha=0.2, bmesh_color='lightgray', 
+                bmesh='midthickness', bmesh_alpha=0.2, bmesh_color='lightgray', 
                 zoom=1.2, orientation_coloring=False, display_type='static', 
                 tract_kwargs=dict(render_lines_as_tubes=True, line_width=1.2),
                 export_path=None):
@@ -547,12 +554,10 @@ def plot_tracts(data=None, atlas=None, custom_atlas_path=None, views=None, layou
         Opacity (0.0 to 1.0) for regions with no data. Set to 0.0 to hide them.
     style : str, optional
         Lighting preset ('default', 'matte', 'glossy', 'sculpted', 'flat').
-    bmesh_type : str or None, optional
-        Name of the background context brain mesh (e.g., 'midthickness', 'white', 'swm', etc). 
-        Set to None to hide the context brain. Default is 'midthickness'.
     bmesh : pyvista.PolyData or dict, optional                                                                                                   
-        Pre-loaded background mesh. Accepts a single PolyData (used for both hemispheres)                                                        
-        or a dict with 'L'/'R' keys. When provided, ``bmesh_type`` is ignored.     
+        Configure background context brain mesh. Accepts a string 
+        (e.g., 'midthickness', 'white', 'swm', etc), single PolyData (used for both hemispheres)                                                        
+        or a dict with 'L'/'R' keys. Default is 'midthickness'.
     bmesh_alpha : float, optional
         Opacity of the context brain mesh. Default is 0.2.
     bmesh_color : str, optional
@@ -603,13 +608,7 @@ def plot_tracts(data=None, atlas=None, custom_atlas_path=None, views=None, layou
         c_vlim = [0, 1]
 
     # load context brain mesh (if requested)
-    ctx_meshes = {}
-    if bmesh is not None:
-        ctx_meshes = bmesh if isinstance(bmesh, dict) else {'both': bmesh}
-    if bmesh_type:
-        b_lh_path, b_rh_path = get_surface_paths(bmesh_type, 'bmesh')
-        ctx_meshes['L'] = load_gii2pv(b_lh_path)
-        ctx_meshes['R'] = load_gii2pv(b_rh_path)
+    ctx_meshes = _load_bmesh(bmesh)
 
     # setup plotter
     sel_views = get_view_configs(views)
