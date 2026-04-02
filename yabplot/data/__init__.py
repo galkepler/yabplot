@@ -6,6 +6,7 @@ import os
 import glob
 from pathlib import Path
 import pooch
+import shutil
 
 from ..utils import parse_lut
 
@@ -188,26 +189,44 @@ def get_atlas_regions(atlas, category, custom_atlas_path=None):
 def _fetch_and_unpack(resource_key):
     """
     Downloads zip, unpacks it, deletes the zip to save space, 
-    and returns the extraction path.
+    and returns the extraction path. Forces a redownload if the 
+    registry hash changes (indicating an update).
     """
     extract_dir_name = resource_key.replace(".zip", "")
     extract_path = os.path.join(GOODBOY.path, extract_dir_name)
+    hash_file = os.path.join(extract_path, ".registry_hash")
 
-    # optimization: check if unpacked folder already exists
-    # if yes, skip pooch check entirely to avoid re-downloading
-    if os.path.isdir(extract_path) and os.listdir(extract_path):
+    # get the expected hash from the registry
+    expected_hash = GOODBOY.registry.get(resource_key)
+    if not expected_hash:
+        raise ValueError(f"Resource '{resource_key}' not found in registry.")
+
+    # check if unpacked folder already exists and is up-to-date
+    is_up_to_date = False
+    if os.path.isdir(extract_path) and os.path.exists(hash_file):
+        with open(hash_file, 'r') as f:
+            local_hash = f.read().strip()
+        if local_hash == expected_hash:
+            is_up_to_date = True
+    if is_up_to_date:
         return extract_path
-
-    # fetch and unzip
+    # if folder exists but hash is wrong (outdated), wipe it clean
+    elif os.path.exists(extract_path):
+        print(f"Update found for '{extract_dir_name}'. Removing legacy data...")
+        shutil.rmtree(extract_path)
+        
+    # fetch and unzip new data
     try:
         GOODBOY.fetch(
             resource_key, 
             processor=pooch.Unzip(extract_dir=extract_dir_name)
         )
-    except ValueError:
-        # if key not in registry
-        available = list(GOODBOY.registry.keys())
-        raise ValueError(f"Resource '{resource_key}' not found in registry.")
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch '{resource_key}': {e}")
+    
+    # stamp the new folder with the updated hash
+    with open(hash_file, 'w') as f:
+        f.write(expected_hash)
 
     # cleanup: delete the source zip to save space
     zip_path = os.path.join(GOODBOY.path, resource_key)
