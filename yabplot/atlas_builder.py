@@ -328,6 +328,12 @@ def build_subcortical_atlas(nii_path, labels_dict, out_dir, include_list=None, e
         # save as a vtk file
         out_file = os.path.join(out_dir, f"{name}.vtk")
         mesh.save(out_file)
+    
+    # file for ordering the labels
+    lut_path = os.path.join(out_dir, "atlas_LUT.txt")
+    with open(lut_path, 'w') as f:
+        for rid, name in targets.items():
+            f.write(f"{rid} {name}\n")
 
     print(f"\nsubcortical atlas successfully saved to: {out_dir}")
 

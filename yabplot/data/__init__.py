@@ -166,8 +166,7 @@ def get_atlas_regions(atlas, category, custom_atlas_path=None):
     elif category == 'subcortical':
         try:
             file_map = _find_subcortical_files(atlas_dir)
-            # the plotting function sorts keys alphabetically
-            return sorted(list(file_map.keys()))
+            return _get_ordered_names(atlas_dir, file_map)
         except Exception as e:
             print(f"Error listing subcortical regions: {e}")
             return []
@@ -176,8 +175,7 @@ def get_atlas_regions(atlas, category, custom_atlas_path=None):
     elif category == 'tracts':
         try:
             file_map = _find_tract_files(atlas_dir)
-            # the plotting function sorts keys alphabetically
-            return sorted(list(file_map.keys()))
+            return _get_ordered_names(atlas_dir, file_map)
         except Exception as e:
             print(f"Error listing tracts: {e}")
             return []
@@ -347,6 +345,46 @@ def _find_cortical_files(atlas_dir, strict_name=None):
         
     return csv_path, lut_path
 
+def _get_ordered_names(atlas_dir, file_map):
+    """
+    Attempts to read the strict region order from a LUT or order text file.
+    Falls back to alphabetical sorting if no file exists.
+    """
+    txt_files = []
+
+    # look for a LUT or order file, ignoring qc reports
+    for root, dirs, files in os.walk(atlas_dir):
+        dirs[:] = [d for d in dirs if not d.startswith(('.', '__')) and 'qc_report' not in d]
+        for file in files:
+            if file.endswith('.txt') and 'registry' not in file:
+                txt_files.append(os.path.join(root, file))
+    def file_priority(filepath):
+        name = filepath.lower()
+        if 'lut' in name: return 0
+        if 'order' in name: return 1
+        return 2
+    txt_files.sort(key=file_priority)
+
+    if txt_files:
+        ordered_names = []
+        with open(txt_files[0], 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                # assuming standard LUT format (ID Name ...) or simple list (ID Name)
+                if len(parts) >= 2:
+                    name = parts[1]
+                    if name in file_map and name not in ordered_names:
+                        ordered_names.append(name)
+        
+        # append any stray files that exist in the directory but weren't in the text file
+        for name in sorted(file_map.keys()):
+            if name not in ordered_names:
+                ordered_names.append(name)
+        
+        return ordered_names
+
+    # legacy fallback: alphabetical
+    return sorted(list(file_map.keys()))
 
 def _find_subcortical_files(atlas_dir):
     """

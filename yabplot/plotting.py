@@ -8,7 +8,7 @@ from matplotlib.colors import ListedColormap
 
 from .data import (
     get_surface_paths, _resolve_resource_path, _find_cortical_files, 
-    _find_subcortical_files, _find_tract_files
+    _find_subcortical_files, _find_tract_files, get_atlas_regions
 )
 
 from .utils import (
@@ -384,7 +384,7 @@ def plot_subcortical(data=None, atlas=None, custom_atlas_path=None, views=None, 
 
     # locate mesh files, returns dict: {'Left_Thalamus': '/path/to/Left_Thalamus.vtk', ...}
     file_map = _find_subcortical_files(atlas_dir)
-    rmesh_names = sorted(list(file_map.keys()))
+    rmesh_names = get_atlas_regions(atlas, 'subcortical', custom_atlas_path)
 
     # load meshes (and convert gii2pv if gii files)
     meshes = {}
@@ -430,8 +430,8 @@ def plot_subcortical(data=None, atlas=None, custom_atlas_path=None, views=None, 
             # side filter
             # TODO: make the hemisphere specific name check more robust
             name_lower = name.lower()
-            is_left = any(x in name_lower for x in ['left']) or name_lower.startswith('l-') or name_lower.endswith('_l')
-            is_right = any(x in name_lower for x in ['right']) or name_lower.startswith('r-') or name_lower.endswith('_r')
+            is_left = any(x in name_lower for x in ['left']) or name_lower.startswith('l-') or name_lower.endswith('_l') or name_lower.endswith('-lh')
+            is_right = any(x in name_lower for x in ['right']) or name_lower.startswith('r-') or name_lower.endswith('_r') or name_lower.endswith('-rh')
             
             if cfg['side'] == 'L' and is_right and not is_left: continue
             if cfg['side'] == 'R' and is_left and not is_right: continue
@@ -563,7 +563,7 @@ def plot_tracts(data=None, atlas=None, custom_atlas_path=None, views=None, layou
 
     # locate tract files, returns dict eg {'CST_L': '/path/to/CST_L.trk', ...}
     file_map = _find_tract_files(atlas_dir)
-    tract_names = sorted(list(file_map.keys()))
+    tract_names = get_atlas_regions(atlas, 'tracts', custom_atlas_path)
 
     # prepare colors and map data
     if data is not None:
@@ -666,8 +666,8 @@ def plot_tracts(data=None, atlas=None, custom_atlas_path=None, views=None, layou
             
             # side filtering
             name_lower = name.lower()
-            is_left = any(x in name_lower for x in ['left', '_l', '-l', 'l_']) or name_lower.endswith('l')
-            is_right = any(x in name_lower for x in ['right', '_r', '-r', 'r_']) or name_lower.endswith('r')
+            is_left = any(x in name_lower for x in ['left', '_l', '-l', 'l_'])# or name_lower.endswith('l')
+            is_right = any(x in name_lower for x in ['right', '_r', '-r', 'r_'])# or name_lower.endswith('r')
             if cfg['side'] == 'L' and is_right and not is_left: continue
             if cfg['side'] == 'R' and is_left and not is_right: continue
 
