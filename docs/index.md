@@ -14,7 +14,7 @@ the idea is simple. while there are already amazing visualization tools availabl
 ## features
 
 * **pre-existing atlases:** access many commonly used atlases (schaefer2018, brainnetome, aparc, aseg, musus100, xtract, etc) on demand.
-* [new!] **vertexwise plotting:** project volume (.nii) to cortical surface and plot.
+* **vertexwise plotting:** project volume (.nii) to cortical surface and plot.
 * **simple to use:** plug-n-play functions for cortex, subcortex, and tracts with a unified API.
 * **custom atlases:** easily use your own parcellations, segmentations (.nii/.gii), or tractograms (.trk).
 * **flexible inputs:** accepts data as dictionaries (for partial mapping) or arrays (for strict mapping).
@@ -52,16 +52,12 @@ print(yab.get_available_resources())
 # see the region names for a specific atlas
 print(yab.get_atlas_regions(atlas='aseg', category='subcortical'))
 
-# cortical surfaces
+# cortical surface regions
 atlas = 'aparc'
 dmap1 = {'L_lateraloccipital': 0.265, 'L_postcentral': 0.086, ...}
-dmap2 = {'L_fusiform': 0.218, 'L_supramarginal': 0.119, ...}
 yab.plot_cortical(data=dmap1, atlas=atlas, vminmax=[-0.1, 0.3], 
-                  bmesh_type='midthickness', views=['left_lateral', 'left_medial'],
-                  figsize=(600, 300), cmap='viridis', proc_vertices='sharp')
-yab.plot_cortical(data=dmap2, atlas=atlas, vminmax=[-0.1, 0.3], 
-                  bmesh_type='swm', views=['left_lateral', 'left_medial'],
-                  figsize=(1200, 600), cmap='viridis', proc_vertices='sharp')
+                  bmesh='midthickness', views=['left_lateral', 'left_medial'],
+                  figsize=(600, 300), cmap='viridis')
 
 # subcortical structures
 atlas = 'aseg'
@@ -71,12 +67,22 @@ yab.plot_subcortical(data=data, atlas=atlas, vminmax=[2, 14],
                      views=['left_lateral', 'superior', 'right_lateral'], 
                      bmesh_alpha=0.1, figsize=(600, 300), cmap='viridis')
 
+# vertex-wise surface
+threshold = 4
+b_lh_path, b_rh_path = yab.data.get_surface_paths('midthickness', 'bmesh')
+lh_data, rh_data = yab.project_vol2surf('path/to/yourdata.nii.gz', bmesh='midthickness')
+lh_data = np.where(lh_data > threshold, lh_data, np.nan)
+rh_data = np.where(rh_data > threshold, rh_data, np.nan)
+lh_mesh, rh_mesh = yab.load_vertexwise_mesh(b_lh_path, b_rh_path, lh_data, rh_data)
+yab.plot_vertexwise(lh_mesh, rh_mesh, cmap='viridis', vminmax=[-4, 9], 
+                    views=['left_lateral', 'left_medial'], figsize=(600, 300))
+
 # white matter bundles
 atlas = 'xtract_tiny'
 regs = yab.get_atlas_regions(atlas=atlas, category='tracts')
 data = {reg: np.sin(i) for i, reg in enumerate(regs)}
 yab.plot_tracts(data=data, atlas=atlas, style='matte',
-                views=['left_lateral', 'anterior', 'superior'], bmesh_type='pial',
+                views=['left_lateral', 'anterior', 'superior'], bmesh='pial',
                 bmesh_alpha=0.1, figsize=(1600, 800), cmap='viridis')
 
 ```

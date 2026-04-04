@@ -1,4 +1,4 @@
-# Plotting API
+# plotting API
 
 ::: yabplot.plotting.plot_cortical
     options:
