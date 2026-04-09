@@ -1,5 +1,6 @@
 import os
 import gc
+import re
 import numpy as np
 import pandas as pd
 import nibabel as nib
@@ -655,9 +656,9 @@ def plot_tracts(data=None, atlas=None, custom_atlas_path=None, views=None, layou
                     continue
             
             # side filtering
-            name_lower = name.lower()
-            is_left = any(x in name_lower for x in ['left', '_l', '-l', 'l_'])# or name_lower.endswith('l')
-            is_right = any(x in name_lower for x in ['right', '_r', '-r', 'r_'])# or name_lower.endswith('r')
+            tokens = [t for t in re.split(r"[^a-z0-9]+", name.lower()) if t]
+            is_left = any(x in tokens for x in ['left', 'l', 'lh'])
+            is_right = any(x in tokens for x in ['right', 'r', 'rh'])
             if cfg['side'] == 'L' and is_right and not is_left: continue
             if cfg['side'] == 'R' and is_left and not is_right: continue
 
