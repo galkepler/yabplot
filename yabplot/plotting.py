@@ -1,5 +1,6 @@
 import os
 import gc
+import re
 import numpy as np
 import pandas as pd
 import nibabel as nib
@@ -420,12 +421,10 @@ def plot_subcortical(data=None, atlas=None, custom_atlas_path=None, views=None, 
 
         # add regions
         for name, mesh in meshes.items():
-            # side filter
-            # TODO: make the hemisphere specific name check more robust
-            name_lower = name.lower()
-            is_left = any(x in name_lower for x in ['left']) or name_lower.startswith('l-') or name_lower.endswith('_l') or name_lower.endswith('-lh')
-            is_right = any(x in name_lower for x in ['right']) or name_lower.startswith('r-') or name_lower.endswith('_r') or name_lower.endswith('-rh')
-            
+            # side filtering
+            tokens = set(re.split(r'[^a-z0-9]+', name.lower()))
+            is_left = any(x in tokens for x in ['left', 'l', 'lh'])
+            is_right = any(x in tokens for x in ['right', 'r', 'rh'])
             if cfg['side'] == 'L' and is_right and not is_left: continue
             if cfg['side'] == 'R' and is_left and not is_right: continue
 
@@ -655,9 +654,9 @@ def plot_tracts(data=None, atlas=None, custom_atlas_path=None, views=None, layou
                     continue
             
             # side filtering
-            name_lower = name.lower()
-            is_left = any(x in name_lower for x in ['left', '_l', '-l', 'l_'])# or name_lower.endswith('l')
-            is_right = any(x in name_lower for x in ['right', '_r', '-r', 'r_'])# or name_lower.endswith('r')
+            tokens = set(re.split(r'[^a-z0-9]+', name.lower()))
+            is_left = any(x in tokens for x in ['left', 'l', 'lh'])
+            is_right = any(x in tokens for x in ['right', 'r', 'rh'])
             if cfg['side'] == 'L' and is_right and not is_left: continue
             if cfg['side'] == 'R' and is_left and not is_right: continue
 
