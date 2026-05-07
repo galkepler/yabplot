@@ -22,7 +22,7 @@ from .utils import (
 from .mesh import (
     map_values_to_surface, get_puzzle_pieces, apply_internal_blur,
     apply_dilation, get_smooth_mask, lines_from_streamlines,
-    make_cortical_mesh, load_bmesh, extract_polydata
+    make_cortical_mesh, load_bmesh, extract_polydata, get_region_boundaries
 )
 
 from .scene import (
@@ -35,7 +35,8 @@ def _render_cortical_views(lh_v, lh_f, lh_vals, rh_v, rh_f, rh_vals, is_cat,
                            ax, cbar_kwargs,
                            views, layout, figsize, cmap, vminmax, nan_color,
                            style, zoom, proc_vertices, display_type, export_path,
-                           lut_colors=None, max_id=None):
+                           lut_colors=None, max_id=None,
+                           lh_contours=None, rh_contours=None, contour_kwargs=None):
     """Internal helper to render cortical data."""
 
     # setup colors and vminmax
@@ -105,6 +106,14 @@ def _render_cortical_views(lh_v, lh_f, lh_vals, rh_v, rh_f, rh_vals, is_cat,
             )
             if scalar_bar_mapper is None: scalar_bar_mapper = actor.mapper
 
+        # draw region boundary contours if requested
+        if contour_kwargs:
+            for c_mesh, side_key in [(lh_contours, 'L'), (rh_contours, 'R')]:
+                if c_mesh is None:
+                    continue
+                if cfg['side'] in [side_key, 'both']:
+                    plotter.add_mesh(c_mesh, **contour_kwargs)
+
         set_camera(plotter, cfg, zoom=zoom)
         plotter.hide_axes()
 
@@ -124,7 +133,7 @@ def _render_cortical_views(lh_v, lh_f, lh_vals, rh_v, rh_f, rh_vals, is_cat,
 def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_kwargs=None, views=None, layout=None,
                   bmesh='midthickness', figsize=None, cmap='coolwarm', vminmax=[None, None],
                   nan_color=(1.0, 1.0, 1.0), style='default', zoom=1.2, proc_vertices=None,
-                  display_type='matplotlib', export_path=None):
+                  display_type='matplotlib', export_path=None, draw_contours=False):
     """
     Visualize data on the cortical surface using a specified atlas.
 
@@ -178,6 +187,19 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_k
         'object': returns the raw pyvista plotter object.
     export_path : str, optional
         If provided, saves the final figure to this path (e.g., 'figure.png').
+    draw_contours : bool or dict, optional
+        Draw boundary lines between atlas regions on the surface.
+        False (default): no contours.
+        True: draw with default style (black lines, width 2, fully opaque).
+        dict: override any of the defaults. Supported keys (beyond PyVista
+        ``add_mesh`` kwargs):
+
+        - ``color`` (str/tuple): line color. Default ``'black'``.
+        - ``line_width`` (float): line width in screen pixels. Default ``2.0``.
+        - ``opacity`` (float): line opacity 0–1. Default ``1.0``.
+        - ``include_nan`` (bool): if False, suppress contour edges that touch
+          a region with no data (NaN). Useful to draw borders only around
+          regions that actually have a value. Default ``True``.
 
     Returns
     -------
@@ -213,11 +235,30 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_k
     lh_vals_raw = all_vals[:len(lh_v)]
     rh_vals_raw = all_vals[len(lh_v):]
 
+    # compute region boundary contours
+    lh_contours, rh_contours, contour_kwargs = None, None, None
+    if draw_contours:
+        _ckw = {'color': 'black', 'line_width': 2.0, 'opacity': 1.0, 'include_nan': True}
+        if isinstance(draw_contours, dict):
+            _ckw.update(draw_contours)
+        include_nan = _ckw.pop('include_nan')
+        contour_kwargs = _ckw
+        n_lh = len(lh_v)
+        lh_contours = get_region_boundaries(
+            lh_v, lh_f, tar_labels[:n_lh],
+            values=lh_vals_raw, include_nan=include_nan
+        )
+        rh_contours = get_region_boundaries(
+            rh_v, rh_f, tar_labels[n_lh:],
+            values=rh_vals_raw, include_nan=include_nan
+        )
+
     # render
     return _render_cortical_views(
         lh_v, lh_f, lh_vals_raw, rh_v, rh_f, rh_vals_raw, is_cat, ax, cbar_kwargs,
         views, layout, figsize, cmap, vminmax, nan_color, style,
-        zoom, proc_vertices, display_type, export_path, lut_colors, max_id
+        zoom, proc_vertices, display_type, export_path, lut_colors, max_id,
+        lh_contours, rh_contours, contour_kwargs
     )
 
 

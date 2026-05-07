@@ -312,6 +312,62 @@ def get_puzzle_pieces(v, f, raw_vals):
     return base_p, pieces
 
 
+def get_region_boundaries(vertices, faces, labels, values=None, include_nan=True):
+    """Extract boundary edges between adjacent regions as a PyVista PolyData.
+
+    An edge is a boundary if its two endpoint vertices carry different label IDs.
+
+    Parameters
+    ----------
+    vertices : numpy.ndarray
+        (N, 3) float array of vertex coordinates.
+    faces : numpy.ndarray
+        (M, 3) int array of triangle face indices.
+    labels : numpy.ndarray
+        (N,) integer label array (one ID per vertex).
+    values : numpy.ndarray, optional
+        (N,) float array of mapped data values (may contain NaN). When provided
+        together with ``include_nan=False``, edges where either endpoint has a
+        NaN value are excluded.
+    include_nan : bool, optional
+        If False and ``values`` is provided, suppress contour edges that touch
+        a vertex whose mapped value is NaN (i.e. regions with no data). Default True.
+
+    Returns
+    -------
+    pyvista.PolyData or None
+        Line mesh of boundary edges, or None if no boundaries exist.
+    """
+    # collect all unique undirected edges from the triangle mesh
+    edges = np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [0, 2]]])
+    edges = np.sort(edges, axis=1)
+    edges = np.unique(edges, axis=0)
+
+    # keep only edges where the two endpoints belong to different regions
+    with np.errstate(invalid='ignore'):
+        boundary_mask = labels[edges[:, 0]] != labels[edges[:, 1]]
+
+    # optionally suppress edges that touch NaN-valued vertices
+    if not include_nan and values is not None:
+        v0 = values[edges[:, 0]]
+        v1 = values[edges[:, 1]]
+        with np.errstate(invalid='ignore'):
+            valid_mask = ~np.isnan(v0.astype(float)) & ~np.isnan(v1.astype(float))
+        boundary_mask = boundary_mask & valid_mask
+
+    boundary_edges = edges[boundary_mask]
+
+    if len(boundary_edges) == 0:
+        return None
+
+    lines = np.column_stack([
+        np.full(len(boundary_edges), 2, dtype=np.int64),
+        boundary_edges.astype(np.int64)
+    ]).ravel()
+
+    return pv.PolyData(vertices, lines=lines)
+
+
 def lines_from_streamlines(streamlines):
     if len(streamlines) == 0: return np.array([]), np.array([]), np.array([])
     
