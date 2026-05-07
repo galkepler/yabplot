@@ -312,7 +312,8 @@ def get_puzzle_pieces(v, f, raw_vals):
     return base_p, pieces
 
 
-def get_region_boundaries(vertices, faces, labels, values=None, include_nan=True):
+def get_region_boundaries(vertices, faces, labels, values=None, include_nan=True,
+                           region_ids=None):
     """Extract boundary edges between adjacent regions as a PyVista PolyData.
 
     An edge is a boundary if its two endpoint vertices carry different label IDs.
@@ -334,6 +335,10 @@ def get_region_boundaries(vertices, faces, labels, values=None, include_nan=True
         *both* endpoints are NaN — i.e. draw outlines around regions that have
         data (including their border with NaN regions) but skip borders between
         two NaN regions. Default True.
+    region_ids : set or array-like of int, optional
+        If provided, only boundary edges where at least one endpoint vertex
+        belongs to one of these label IDs are included. Draws the full outline
+        of each selected region (including its border with unselected regions).
 
     Returns
     -------
@@ -348,6 +353,13 @@ def get_region_boundaries(vertices, faces, labels, values=None, include_nan=True
     # keep only edges where the two endpoints belong to different regions
     with np.errstate(invalid='ignore'):
         boundary_mask = labels[edges[:, 0]] != labels[edges[:, 1]]
+
+    # optionally restrict to edges touching the requested region IDs
+    if region_ids is not None:
+        region_arr = np.asarray(list(region_ids))
+        region_mask = (np.isin(labels[edges[:, 0]], region_arr) |
+                       np.isin(labels[edges[:, 1]], region_arr))
+        boundary_mask = boundary_mask & region_mask
 
     # optionally suppress edges that touch NaN-valued vertices
     if not include_nan and values is not None:
