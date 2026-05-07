@@ -197,9 +197,10 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_k
         - ``color`` (str/tuple): line color. Default ``'black'``.
         - ``line_width`` (float): line width in screen pixels. Default ``2.0``.
         - ``opacity`` (float): line opacity 0–1. Default ``1.0``.
-        - ``include_nan`` (bool): if False, suppress contour edges that touch
-          a region with no data (NaN). Useful to draw borders only around
-          regions that actually have a value. Default ``True``.
+        - ``include_nan`` (bool): if False, only draw edges where at least one
+          side has a non-NaN value — outlines regions that have data, including
+          their boundary with NaN regions, but skips borders between two NaN
+          regions. Default ``True``.
 
     Returns
     -------

@@ -330,8 +330,10 @@ def get_region_boundaries(vertices, faces, labels, values=None, include_nan=True
         together with ``include_nan=False``, edges where either endpoint has a
         NaN value are excluded.
     include_nan : bool, optional
-        If False and ``values`` is provided, suppress contour edges that touch
-        a vertex whose mapped value is NaN (i.e. regions with no data). Default True.
+        If False and ``values`` is provided, suppress contour edges where
+        *both* endpoints are NaN — i.e. draw outlines around regions that have
+        data (including their border with NaN regions) but skip borders between
+        two NaN regions. Default True.
 
     Returns
     -------
@@ -352,7 +354,9 @@ def get_region_boundaries(vertices, faces, labels, values=None, include_nan=True
         v0 = values[edges[:, 0]]
         v1 = values[edges[:, 1]]
         with np.errstate(invalid='ignore'):
-            valid_mask = ~np.isnan(v0.astype(float)) & ~np.isnan(v1.astype(float))
+            # keep edge if at least one side has data — draws the full outline
+            # around regions with values, including their border with NaN regions
+            valid_mask = ~np.isnan(v0.astype(float)) | ~np.isnan(v1.astype(float))
         boundary_mask = boundary_mask & valid_mask
 
     boundary_edges = edges[boundary_mask]
