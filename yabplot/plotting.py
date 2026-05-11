@@ -31,55 +31,71 @@ from .scene import (
 )
 
 
-def _build_contour_layers(draw_contours, contour_regions,
-                           lh_v, lh_f, rh_v, rh_f,
+def _build_contour_layers(contours, lh_v, lh_f, rh_v, rh_f,
                            tar_labels, lh_vals_raw, rh_vals_raw,
                            lut_ids, lut_names, n_lh):
-    """Build a list of (lh_mesh, rh_mesh, kwargs) contour render layers."""
-    base_kwargs = {'color': 'black', 'line_width': 2.0, 'opacity': 1.0, 'include_nan': True}
-    if isinstance(draw_contours, dict):
-        base_kwargs.update(draw_contours)
-    base_include_nan = base_kwargs.pop('include_nan')
+    """Build a list of (lh_mesh, rh_mesh, kwargs) contour render layers.
+
+    ``contours`` accepts:
+    - ``True``: all regions, default style.
+    - style-dict (values are primitives): all regions, custom style.
+    - list / bool ndarray: those regions, default style.
+    - region-dict (all values are dicts): per-region style for listed regions only.
+    """
+    _BASE = {'color': 'black', 'line_width': 2.0, 'opacity': 1.0, 'include_nan': True}
 
     # name → label-ID lookup (lut_names is a dense list indexed by label ID)
     name_to_id = {name: lid for lid, name in enumerate(lut_names)
                   if name and name != 'Unknown'}
 
-    # resolve contour_regions → groups: list of (region_ids_set_or_None, kwargs, include_nan)
-    if contour_regions is None:
-        groups = [(None, base_kwargs, base_include_nan)]
+    def _pop_include_nan(d):
+        d = d.copy()
+        return d.pop('include_nan', _BASE['include_nan']), d
 
-    elif isinstance(contour_regions, dict):
+    is_region_dict = (isinstance(contours, dict) and
+                      bool(contours) and
+                      all(isinstance(v, dict) for v in contours.values()))
+
+    if contours is True:
+        inc_nan, pv_kw = _pop_include_nan(_BASE.copy())
+        groups = [(None, inc_nan, pv_kw)]
+
+    elif isinstance(contours, dict) and not is_region_dict:
+        inc_nan, pv_kw = _pop_include_nan({**_BASE, **contours})
+        groups = [(None, inc_nan, pv_kw)]
+
+    elif is_region_dict:
         from collections import defaultdict
+        base_inc_nan, base_pv = _pop_include_nan(_BASE.copy())
         kwargs_groups = defaultdict(list)
-        for rname, rkwargs in contour_regions.items():
-            merged = {**base_kwargs, **rkwargs}
-            inc_nan = merged.pop('include_nan', base_include_nan)
-            key = (tuple(sorted(merged.items())), inc_nan)
+        for rname, rkwargs in contours.items():
+            inc_nan, pv_kw = _pop_include_nan({**base_pv, 'include_nan': base_inc_nan, **rkwargs})
+            key = (tuple(sorted(pv_kw.items())), inc_nan)
             rid = name_to_id.get(rname)
             if rid is not None:
                 kwargs_groups[key].append(rid)
-        groups = [(set(ids), dict(kw), inc_nan) for (kw, inc_nan), ids in kwargs_groups.items()]
+        groups = [(set(ids), inc_nan, dict(kw)) for (kw, inc_nan), ids in kwargs_groups.items()]
 
     else:
         # list of names or boolean mask
-        cr = np.asarray(contour_regions)
+        inc_nan, pv_kw = _pop_include_nan(_BASE.copy())
+        cr = np.asarray(contours)
         if cr.dtype == bool:
             region_ids = {int(lut_ids[i]) for i, m in enumerate(cr) if m and i < len(lut_ids)}
         else:
             region_ids = {name_to_id[n] for n in cr if n in name_to_id}
-        groups = [(region_ids, base_kwargs, base_include_nan)]
+        groups = [(region_ids, inc_nan, pv_kw)]
 
     layers = []
-    for region_ids_set, kwargs, include_nan in groups:
+    for region_ids_set, inc_nan, pv_kw in groups:
         lh_c = get_region_boundaries(lh_v, lh_f, tar_labels[:n_lh],
-                                      values=lh_vals_raw, include_nan=include_nan,
+                                      values=lh_vals_raw, include_nan=inc_nan,
                                       region_ids=region_ids_set)
         rh_c = get_region_boundaries(rh_v, rh_f, tar_labels[n_lh:],
-                                      values=rh_vals_raw, include_nan=include_nan,
+                                      values=rh_vals_raw, include_nan=inc_nan,
                                       region_ids=region_ids_set)
         if lh_c is not None or rh_c is not None:
-            layers.append((lh_c, rh_c, kwargs))
+            layers.append((lh_c, rh_c, pv_kw))
     return layers
 
 
@@ -186,8 +202,7 @@ def _render_cortical_views(lh_v, lh_f, lh_vals, rh_v, rh_f, rh_vals, is_cat,
 def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_kwargs=None, views=None, layout=None,
                   bmesh='midthickness', figsize=None, cmap='coolwarm', vminmax=[None, None],
                   nan_color=(1.0, 1.0, 1.0), style='default', zoom=1.2, proc_vertices=None,
-                  display_type='matplotlib', export_path=None, draw_contours=False,
-                  contour_regions=None):
+                  display_type='matplotlib', export_path=None, contours=False):
     """
     Visualize data on the cortical surface using a specified atlas.
 
@@ -241,33 +256,18 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_k
         'object': returns the raw pyvista plotter object.
     export_path : str, optional
         If provided, saves the final figure to this path (e.g., 'figure.png').
-    draw_contours : bool or dict, optional
-        Draw boundary lines between atlas regions on the surface.
-        False (default): no contours.
-        True: draw with default style (black lines, width 2, fully opaque).
-        dict: override any of the defaults. Supported keys (beyond PyVista
-        ``add_mesh`` kwargs):
+    contours : bool, dict, list, or numpy.ndarray, optional
+        Draw boundary lines between atlas regions. Default ``False``. Four forms:
 
-        - ``color`` (str/tuple): line color. Default ``'black'``.
-        - ``line_width`` (float): line width in screen pixels. Default ``2.0``.
-        - ``opacity`` (float): line opacity 0–1. Default ``1.0``.
-        - ``include_nan`` (bool): if False, only draw edges where at least one
-          side has a non-NaN value — outlines regions that have data, including
-          their boundary with NaN regions, but skips borders between two NaN
-          regions. Default ``True``.
-    contour_regions : None, list, numpy.ndarray, or dict, optional
-        Restrict contours to specific atlas regions (requires ``draw_contours``
-        to be enabled). If None (default), contours are drawn for all regions.
-
-        - ``list`` of region name strings: draw contours only for those regions,
-          using the global style from ``draw_contours``.
-        - ``numpy.ndarray`` (bool, length = number of atlas regions in LUT order):
-          draw contours for regions where the mask is True.
-        - ``dict`` mapping region name → style-kwargs dict: draw contours only
-          for the listed regions; each region's style is the global
-          ``draw_contours`` defaults merged with its per-region overrides.
-          Supported per-region keys: same as ``draw_contours`` dict keys
-          (``color``, ``line_width``, ``opacity``, ``include_nan``).
+        - ``True``: all regions, default style (black, width 2, opaque).
+        - **style dict** (values are primitives): all regions, custom style.
+          Keys: ``color``, ``line_width``, ``opacity``, ``include_nan``.
+          ``include_nan=False`` suppresses borders between two NaN regions while
+          keeping outlines around regions that have data. Default ``True``.
+        - **list** of region name strings or **bool ndarray** (len = LUT size):
+          those regions only, default style.
+        - **region dict** (values are dicts): only the listed regions, each
+          style dict merged with the global defaults. Same keys as style dict.
 
     Returns
     -------
@@ -305,11 +305,10 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_k
 
     # compute region boundary contours
     contour_layers = None
-    if draw_contours:
+    if contours is not False and contours is not None:
         n_lh = len(lh_v)
         contour_layers = _build_contour_layers(
-            draw_contours, contour_regions,
-            lh_v, lh_f, rh_v, rh_f,
+            contours, lh_v, lh_f, rh_v, rh_f,
             tar_labels, lh_vals_raw, rh_vals_raw,
             lut_ids, lut_names, n_lh
         )
