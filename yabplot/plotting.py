@@ -31,85 +31,55 @@ from .scene import (
 )
 
 
-def _build_contour_layers(contours, lh_v, lh_f, rh_v, rh_f,
+def _build_contour_layers(draw_contours, contour_regions,
+                           lh_v, lh_f, rh_v, rh_f,
                            tar_labels, lh_vals_raw, rh_vals_raw,
                            lut_ids, lut_names, n_lh):
-    """Build a list of (lh_mesh, rh_mesh, kwargs) contour render layers.
-
-    ``contours`` accepts:
-    - ``True``: all regions, default style.
-    - style-dict (values are primitives): all regions, custom style.
-    - list / bool ndarray: those regions, default style.
-    - region-dict (values are dicts): per-region style for listed regions.
-    """
-    _BASE = {'color': 'black', 'line_width': 10.0, 'opacity': 1.0,
-             'include_nan': True, 'smooth_iterations': 10}
+    """Build a list of (lh_mesh, rh_mesh, kwargs) contour render layers."""
+    base_kwargs = {'color': 'black', 'line_width': 2.0, 'opacity': 1.0, 'include_nan': True}
+    if isinstance(draw_contours, dict):
+        base_kwargs.update(draw_contours)
+    base_include_nan = base_kwargs.pop('include_nan')
 
     # name → label-ID lookup (lut_names is a dense list indexed by label ID)
     name_to_id = {name: lid for lid, name in enumerate(lut_names)
                   if name and name != 'Unknown'}
 
-    def _pop_mesh_opts(d):
-        """Pop non-PyVista keys; return (include_nan, smooth_iters, pyvista_kwargs)."""
-        d = d.copy()
-        inc_nan = d.pop('include_nan', _BASE['include_nan'])
-        smooth = d.pop('smooth_iterations', _BASE['smooth_iterations'])
-        return inc_nan, smooth, d
+    # resolve contour_regions → groups: list of (region_ids_set_or_None, kwargs, include_nan)
+    if contour_regions is None:
+        groups = [(None, base_kwargs, base_include_nan)]
 
-    # --- resolve into groups: list of (region_ids_set_or_None, inc_nan, smooth, pv_kwargs) ---
-    is_region_dict = (isinstance(contours, dict) and
-                      bool(contours) and
-                      all(isinstance(v, dict) for v in contours.values()))
-
-    if contours is True:
-        base = _BASE.copy()
-        inc_nan, smooth, pv_kw = _pop_mesh_opts(base)
-        groups = [(None, inc_nan, smooth, pv_kw)]
-
-    elif isinstance(contours, dict) and not is_region_dict:
-        base = {**_BASE, **contours}
-        inc_nan, smooth, pv_kw = _pop_mesh_opts(base)
-        groups = [(None, inc_nan, smooth, pv_kw)]
-
-    elif is_region_dict:
+    elif isinstance(contour_regions, dict):
         from collections import defaultdict
-        base = _BASE.copy()
-        base_inc_nan, base_smooth, base_pv = _pop_mesh_opts(base)
         kwargs_groups = defaultdict(list)
-        for rname, rkwargs in contours.items():
-            merged = {**base_pv, 'include_nan': base_inc_nan,
-                      'smooth_iterations': base_smooth, **rkwargs}
-            inc_nan, smooth, pv_kw = _pop_mesh_opts(merged)
-            key = (tuple(sorted(pv_kw.items())), inc_nan, smooth)
+        for rname, rkwargs in contour_regions.items():
+            merged = {**base_kwargs, **rkwargs}
+            inc_nan = merged.pop('include_nan', base_include_nan)
+            key = (tuple(sorted(merged.items())), inc_nan)
             rid = name_to_id.get(rname)
             if rid is not None:
                 kwargs_groups[key].append(rid)
-        groups = [(set(ids), inc_nan, smooth, dict(kw))
-                  for (kw, inc_nan, smooth), ids in kwargs_groups.items()]
+        groups = [(set(ids), dict(kw), inc_nan) for (kw, inc_nan), ids in kwargs_groups.items()]
 
     else:
         # list of names or boolean mask
-        base = _BASE.copy()
-        inc_nan, smooth, pv_kw = _pop_mesh_opts(base)
-        cr = np.asarray(contours)
+        cr = np.asarray(contour_regions)
         if cr.dtype == bool:
             region_ids = {int(lut_ids[i]) for i, m in enumerate(cr) if m and i < len(lut_ids)}
         else:
             region_ids = {name_to_id[n] for n in cr if n in name_to_id}
-        groups = [(region_ids, inc_nan, smooth, pv_kw)]
+        groups = [(region_ids, base_kwargs, base_include_nan)]
 
     layers = []
-    for region_ids_set, inc_nan, smooth, pv_kw in groups:
+    for region_ids_set, kwargs, include_nan in groups:
         lh_c = get_region_boundaries(lh_v, lh_f, tar_labels[:n_lh],
-                                      values=lh_vals_raw, include_nan=inc_nan,
-                                      region_ids=region_ids_set,
-                                      smooth_iterations=smooth)
+                                      values=lh_vals_raw, include_nan=include_nan,
+                                      region_ids=region_ids_set)
         rh_c = get_region_boundaries(rh_v, rh_f, tar_labels[n_lh:],
-                                      values=rh_vals_raw, include_nan=inc_nan,
-                                      region_ids=region_ids_set,
-                                      smooth_iterations=smooth)
+                                      values=rh_vals_raw, include_nan=include_nan,
+                                      region_ids=region_ids_set)
         if lh_c is not None or rh_c is not None:
-            layers.append((lh_c, rh_c, pv_kw))
+            layers.append((lh_c, rh_c, kwargs))
     return layers
 
 
@@ -216,7 +186,8 @@ def _render_cortical_views(lh_v, lh_f, lh_vals, rh_v, rh_f, rh_vals, is_cat,
 def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_kwargs=None, views=None, layout=None,
                   bmesh='midthickness', figsize=None, cmap='coolwarm', vminmax=[None, None],
                   nan_color=(1.0, 1.0, 1.0), style='default', zoom=1.2, proc_vertices=None,
-                  display_type='matplotlib', export_path=None, contours=False):
+                  display_type='matplotlib', export_path=None, draw_contours=False,
+                  contour_regions=None):
     """
     Visualize data on the cortical surface using a specified atlas.
 
@@ -270,31 +241,33 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_k
         'object': returns the raw pyvista plotter object.
     export_path : str, optional
         If provided, saves the final figure to this path (e.g., 'figure.png').
-    contours : bool, dict, list, or numpy.ndarray, optional
-        Draw boundary lines between atlas regions on the surface. Default False
-        (no contours). Accepts four forms:
+    draw_contours : bool or dict, optional
+        Draw boundary lines between atlas regions on the surface.
+        False (default): no contours.
+        True: draw with default style (black lines, width 2, fully opaque).
+        dict: override any of the defaults. Supported keys (beyond PyVista
+        ``add_mesh`` kwargs):
 
-        - ``True``: draw all region boundaries with default style (black lines,
-          width 10, fully opaque).
-        - **style dict** (values are primitives): draw all boundaries with
-          custom global style. Supported keys:
+        - ``color`` (str/tuple): line color. Default ``'black'``.
+        - ``line_width`` (float): line width in screen pixels. Default ``2.0``.
+        - ``opacity`` (float): line opacity 0–1. Default ``1.0``.
+        - ``include_nan`` (bool): if False, only draw edges where at least one
+          side has a non-NaN value — outlines regions that have data, including
+          their boundary with NaN regions, but skips borders between two NaN
+          regions. Default ``True``.
+    contour_regions : None, list, numpy.ndarray, or dict, optional
+        Restrict contours to specific atlas regions (requires ``draw_contours``
+        to be enabled). If None (default), contours are drawn for all regions.
 
-          - ``color`` (str/tuple): Default ``'black'``.
-          - ``line_width`` (float): screen pixels. Default ``10.0``.
-          - ``opacity`` (float): 0–1. Default ``1.0``.
-          - ``include_nan`` (bool): if False, suppress borders between two NaN
-            regions while keeping outlines around regions with data.
-            Default ``True``.
-          - ``smooth_iterations`` (int): Laplacian smoothing passes on the
-            boundary lines (reduces triangular jaggedness). Default 10.
-            Set to 0 to disable.
-
-        - **list / bool ndarray**: draw contours only for the named regions
-          (list of str) or masked regions (bool array over LUT order), using
-          the default style.
-        - **region dict** (values are dicts): draw contours only for the listed
-          regions; each region's style dict is merged with global defaults.
-          Accepts the same keys as the style dict above.
+        - ``list`` of region name strings: draw contours only for those regions,
+          using the global style from ``draw_contours``.
+        - ``numpy.ndarray`` (bool, length = number of atlas regions in LUT order):
+          draw contours for regions where the mask is True.
+        - ``dict`` mapping region name → style-kwargs dict: draw contours only
+          for the listed regions; each region's style is the global
+          ``draw_contours`` defaults merged with its per-region overrides.
+          Supported per-region keys: same as ``draw_contours`` dict keys
+          (``color``, ``line_width``, ``opacity``, ``include_nan``).
 
     Returns
     -------
@@ -332,10 +305,11 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_k
 
     # compute region boundary contours
     contour_layers = None
-    if contours is not False and contours is not None:
+    if draw_contours:
         n_lh = len(lh_v)
         contour_layers = _build_contour_layers(
-            contours, lh_v, lh_f, rh_v, rh_f,
+            draw_contours, contour_regions,
+            lh_v, lh_f, rh_v, rh_f,
             tar_labels, lh_vals_raw, rh_vals_raw,
             lut_ids, lut_names, n_lh
         )
