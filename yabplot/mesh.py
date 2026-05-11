@@ -313,7 +313,7 @@ def get_puzzle_pieces(v, f, raw_vals):
 
 
 def get_region_boundaries(vertices, faces, labels, values=None, include_nan=True,
-                           region_ids=None):
+                           region_ids=None, smooth_iterations=0):
     """Extract boundary edges between adjacent regions as a PyVista PolyData.
 
     An edge is a boundary if its two endpoint vertices carry different label IDs.
@@ -339,6 +339,10 @@ def get_region_boundaries(vertices, faces, labels, values=None, include_nan=True
         If provided, only boundary edges where at least one endpoint vertex
         belongs to one of these label IDs are included. Draws the full outline
         of each selected region (including its border with unselected regions).
+    smooth_iterations : int, optional
+        Number of Laplacian smoothing iterations applied to boundary line
+        vertices. Reduces jaggedness from the triangular mesh. Default 0
+        (no smoothing). Values of 5–15 work well for cortical surfaces.
 
     Returns
     -------
@@ -376,12 +380,35 @@ def get_region_boundaries(vertices, faces, labels, values=None, include_nan=True
     if len(boundary_edges) == 0:
         return None
 
+    # optionally apply Laplacian smoothing to reduce triangular jaggedness
+    out_vertices = vertices
+    if smooth_iterations > 0:
+        unique_idx = np.unique(boundary_edges)
+        local_map = {g: l for l, g in enumerate(unique_idx)}
+        local_edges = np.array([[local_map[a], local_map[b]] for a, b in boundary_edges])
+        local_verts = vertices[unique_idx].copy()
+
+        adj = [[] for _ in range(len(unique_idx))]
+        for a, b in local_edges:
+            adj[a].append(b)
+            adj[b].append(a)
+
+        for _ in range(smooth_iterations):
+            new_verts = local_verts.copy()
+            for i, neighbors in enumerate(adj):
+                if neighbors:
+                    new_verts[i] = local_verts[neighbors].mean(axis=0)
+            local_verts = new_verts
+
+        out_vertices = vertices.copy()
+        out_vertices[unique_idx] = local_verts
+
     lines = np.column_stack([
         np.full(len(boundary_edges), 2, dtype=np.int64),
         boundary_edges.astype(np.int64)
     ]).ravel()
 
-    return pv.PolyData(vertices, lines=lines)
+    return pv.PolyData(out_vertices, lines=lines)
 
 
 def lines_from_streamlines(streamlines):
