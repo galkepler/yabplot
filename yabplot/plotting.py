@@ -33,7 +33,7 @@ from .scene import (
 
 def _build_contour_layers(contours, lh_v, lh_f, rh_v, rh_f,
                            tar_labels, lh_vals_raw, rh_vals_raw,
-                           lut_ids, lut_names, n_lh, proc_vertices=None):
+                           lut_ids, lut_names, n_lh):
     """Build a list of (lh_mesh, rh_mesh, kwargs) contour render layers.
 
     ``contours`` accepts:
@@ -42,9 +42,8 @@ def _build_contour_layers(contours, lh_v, lh_f, rh_v, rh_f,
     - list / bool ndarray: those regions, default style.
     - region-dict (values are dicts): per-region style for listed regions.
     """
-    _auto_smooth = 10 if proc_vertices == 'sharp' else 0
-    _BASE = {'color': 'black', 'line_width': 2.0, 'opacity': 1.0,
-             'include_nan': True, 'smooth_iterations': _auto_smooth}
+    _BASE = {'color': 'black', 'line_width': 10.0, 'opacity': 1.0,
+             'include_nan': True, 'smooth_iterations': 10}
 
     # name → label-ID lookup (lut_names is a dense list indexed by label ID)
     name_to_id = {name: lid for lid, name in enumerate(lut_names)
@@ -276,19 +275,19 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_k
         (no contours). Accepts four forms:
 
         - ``True``: draw all region boundaries with default style (black lines,
-          width 2, fully opaque).
+          width 10, fully opaque).
         - **style dict** (values are primitives): draw all boundaries with
           custom global style. Supported keys:
 
           - ``color`` (str/tuple): Default ``'black'``.
-          - ``line_width`` (float): screen pixels. Default ``2.0``.
+          - ``line_width`` (float): screen pixels. Default ``10.0``.
           - ``opacity`` (float): 0–1. Default ``1.0``.
           - ``include_nan`` (bool): if False, suppress borders between two NaN
             regions while keeping outlines around regions with data.
             Default ``True``.
           - ``smooth_iterations`` (int): Laplacian smoothing passes on the
-            boundary lines (reduces triangular jaggedness). Auto-set to 10
-            when ``proc_vertices='sharp'``, otherwise 0.
+            boundary lines (reduces triangular jaggedness). Default 10.
+            Set to 0 to disable.
 
         - **list / bool ndarray**: draw contours only for the named regions
           (list of str) or masked regions (bool array over LUT order), using
@@ -338,7 +337,7 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_k
         contour_layers = _build_contour_layers(
             contours, lh_v, lh_f, rh_v, rh_f,
             tar_labels, lh_vals_raw, rh_vals_raw,
-            lut_ids, lut_names, n_lh, proc_vertices=proc_vertices
+            lut_ids, lut_names, n_lh
         )
 
     # render
