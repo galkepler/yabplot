@@ -380,7 +380,10 @@ def get_region_boundaries(vertices, faces, labels, values=None, include_nan=True
     if len(boundary_edges) == 0:
         return None
 
-    # optionally apply Laplacian smoothing to reduce triangular jaggedness
+    # optionally apply constrained Laplacian smoothing to reduce triangular jaggedness.
+    # only degree-2 vertices (regular chain points) are moved; junction vertices
+    # (degree >= 3, where region boundaries converge) and endpoints (degree 1)
+    # are pinned so smoothing never creates gaps at meeting points.
     out_vertices = vertices
     if smooth_iterations > 0:
         unique_idx = np.unique(boundary_edges)
@@ -396,7 +399,7 @@ def get_region_boundaries(vertices, faces, labels, values=None, include_nan=True
         for _ in range(smooth_iterations):
             new_verts = local_verts.copy()
             for i, neighbors in enumerate(adj):
-                if neighbors:
+                if len(neighbors) == 2:  # pin junctions (≥3) and endpoints (1)
                     new_verts[i] = local_verts[neighbors].mean(axis=0)
             local_verts = new_verts
 
