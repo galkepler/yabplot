@@ -42,7 +42,7 @@ def _build_contour_layers(contours, lh_v, lh_f, rh_v, rh_f,
     - list / bool ndarray: those regions, default style.
     - region-dict (all values are dicts): per-region style for listed regions only.
     """
-    _BASE = {'color': 'black', 'line_width': 2.0, 'opacity': 1.0, 'include_nan': True}
+    _BASE = {'color': 'black', 'line_width': 10.0, 'opacity': 1.0, 'include_nan': True}
 
     # name → label-ID lookup (lut_names is a dense list indexed by label ID)
     name_to_id = {name: lid for lid, name in enumerate(lut_names)
@@ -261,7 +261,7 @@ def plot_cortical(data=None, atlas=None, custom_atlas_path=None, ax=None, cbar_k
 
         - ``True``: all regions, default style (black, width 2, opaque).
         - **style dict** (values are primitives): all regions, custom style.
-          Keys: ``color``, ``line_width``, ``opacity``, ``include_nan``.
+          Keys: ``color``, ``line_width`` (default ``10.0``), ``opacity``, ``include_nan``.
           ``include_nan=False`` suppresses borders between two NaN regions while
           keeping outlines around regions that have data. Default ``True``.
         - **list** of region name strings or **bool ndarray** (len = LUT size):
